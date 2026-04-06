@@ -22,6 +22,8 @@ interface SensorNode {
   lat: number;
   lng: number;
   status: NodeStatus;
+  lastDetectedAt?: number;
+  lastSoundType?: string;
 }
 
 interface SoundEvent {
@@ -91,6 +93,11 @@ app.post('/api/simulate-sound', (req: Request, res: Response): any => {
       logicApplied = `${soundType} detected with NO prior vehicle sound -> Status set to warning`;
     }
     statusChanged = true;
+  }
+  
+  if (statusChanged || node.status !== 'safe') {
+    node.lastDetectedAt = now;
+    node.lastSoundType = soundType.toLowerCase();
   } else {
     logicApplied = `Sound "${soundType}" processed (confidence: ${confidenceScore}) -> No threat logic matched, status unchanged`;
     // We emit update even if status doesn't change because "or a sound is processed" is in requirements
@@ -141,3 +148,25 @@ const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Virtual Forest Simulation Engine running on http://localhost:${PORT}`);
 });
+
+// Threat Degradation Engine
+setInterval(() => {
+  const now = Date.now();
+  nodes.forEach(node => {
+    // 3 minutes = 180000 ms
+    if (node.status !== 'safe' && node.lastDetectedAt && (now - node.lastDetectedAt > 180000)) {
+      node.status = 'safe';
+      node.lastDetectedAt = undefined;
+      node.lastSoundType = undefined;
+      
+      const threatData = {
+        node,
+        logicApplied: 'Node stabilized automatically after 3 minutes of silence.',
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log(`Decay triggered for Node ${node.id}`);
+      io.emit('threat_update', threatData);
+    }
+  });
+}, 1000);

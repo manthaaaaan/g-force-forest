@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import LiveEdgeNode from './components/LiveEdgeNode';
+import MapDashboard from './components/MapDashboard';
 
 const socket = io('http://localhost:3001');
 
 function App() {
+  const [view, setView] = useState<'hero' | 'map'>('hero');
   const videoRef = useRef<HTMLVideoElement>(null);
   const [videoOpacity, setVideoOpacity] = useState(0);
   const [logs, setLogs] = useState<{timestamp: string, logic: string}[]>([]);
@@ -78,7 +80,9 @@ function App() {
   };
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-white">
+    <>
+      {view === 'hero' ? (
+        <div className="relative min-h-screen w-full overflow-hidden bg-white">
       {/* Background Video Layer */}
       <div 
         className="absolute w-full h-full z-0 overflow-hidden" 
@@ -105,14 +109,14 @@ function App() {
         </a>
 
         <div className="hidden md:flex gap-8 items-center">
-          <a href="/" className="text-sm text-black transition-colors">Home</a>
-          <a href="#" className="text-sm text-[#6F6F6F] hover:text-black transition-colors">Map</a>
+          <button onClick={() => setView('hero')} className="text-sm cursor-pointer text-black transition-colors font-medium">Home</button>
+          <button onClick={() => setView('map')} className="text-sm cursor-pointer text-[#6F6F6F] hover:text-black transition-colors">Map</button>
           <a href="#" className="text-sm text-[#6F6F6F] hover:text-black transition-colors">Technology</a>
           <a href="#" className="text-sm text-[#6F6F6F] hover:text-black transition-colors">Simulation</a>
           <a href="#" className="text-sm text-[#6F6F6F] hover:text-black transition-colors">Contact</a>
         </div>
 
-        <button className="rounded-full px-6 py-2.5 text-sm bg-black text-white hover:scale-105 transition-transform duration-300">
+        <button onClick={() => setView('map')} className="rounded-full px-6 py-2.5 text-sm bg-black text-white hover:scale-105 transition-transform duration-300 shadow-md">
           Access Dashboard
         </button>
       </nav>
@@ -151,6 +155,10 @@ function App() {
         )}
       </main>
     </div>
+      ) : (
+        <MapDashboard goHome={() => setView('hero')} />
+      )}
+    </>
   );
 }
 
