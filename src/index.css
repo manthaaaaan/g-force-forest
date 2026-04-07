@@ -1,0 +1,23 @@
+@import "./styles/fonts.css";
+@import "./styles/theme.css";
+@import "tailwindcss";
+
+@layer base {
+  body {
+    @apply font-inter antialiased;
+    background-color: #FFFFFF;
+    color: #000000;
+  }
+}
+
+@keyframes panZoom {
+  0% { transform: scale(1) translate(0, 0); }
+  50% { transform: scale(1.05) translate(-1%, -1%); }
+  100% { transform: scale(1.1) translate(1%, 1%); }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 0.4; }
+  25%, 75% { opacity: 0.8; }
+}
