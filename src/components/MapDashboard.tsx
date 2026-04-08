@@ -16,11 +16,6 @@ interface SensorNode {
   lastSoundType?: string;
 }
 
-interface ThreatLog {
-  timestamp: string;
-  logic: string;
-  nodeId: number;
-}
 
 interface MapDashboardProps {
   goHome: () => void;
@@ -206,9 +201,14 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
   const [mapTheme, setMapTheme] = useState<ThemeKey>('forest');
   const [center, setCenter] = useState<[number, number]>([47.6062, -122.3321]);
   const [nodes, setNodes] = useState<SensorNode[]>([]);
-  const [logs, setLogs] = useState<ThreatLog[]>([]);
-  const [escalateNode, setEscalateNode] = useState<SensorNode | null>(null);
   const [globalAlert, setGlobalAlert] = useState<{ type: string; issuer: string; lat?: number; lng?: number } | null>(null);
+  
+  const escalateNode = React.useMemo(() => {
+    const criticalNodes = [...nodes].filter(n => n.status === 'critical');
+    if (criticalNodes.length === 0) return null;
+    return criticalNodes.sort((a, b) => (b.lastDetectedAt || 0) - (a.lastDetectedAt || 0))[0];
+  }, [nodes]);
+
   const now = useNow();
 
   const currentTheme = TILE_PROVIDERS[mapTheme].theme;
@@ -297,7 +297,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
 
     socket.on('initial_state', () => { });
     socket.on('threat_update', (data: any) => {
-      setLogs((prev) => [{ timestamp: data.timestamp, logic: data.logicApplied, nodeId: data.node.id }, ...prev].slice(0, 50));
       setNodes((prevNodes) =>
         prevNodes.map(node => {
           if (node.id === data.node.id) {
@@ -307,7 +306,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
               lastDetectedAt: data.node.lastDetectedAt,
               lastSoundType: data.node.lastSoundType
             } as SensorNode;
-            if (updatedNode.status === 'critical') setEscalateNode(updatedNode);
             return updatedNode;
           }
           return node;
@@ -408,7 +406,7 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
 
         {/* Live Edge Node */}
         <div className="px-6 pt-2 pb-2">
-          <LiveEdgeNode />
+          <LiveEdgeNode onTrigger={handleManualSimulate} />
         </div>
 
         {/* ── RANGER ONLY: Live Coordinate Panel ── */}
@@ -511,40 +509,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
           </div>
         </div>
 
-        {/* ── Live Acoustic Feed ── */}
-        <div
-          className="flex-1 flex flex-col p-6"
-          style={{
-            borderTop: '1px solid #e5e5e5',
-            background: 'linear-gradient(180deg, #f5f5f5 0%, #ffffff 100%)'
-          }}
-        >
-          <h3 className="flex items-center gap-2 mb-4" style={{ fontFamily: '"Instrument Serif", serif', fontSize: '1.5rem', fontWeight: 400, color: '#000', letterSpacing: '-0.5px' }}>
-            <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#b91c1c', boxShadow: '0 0 8px #b91c1c', display: 'inline-block' }}></span>
-            Live Acoustic Feed
-          </h3>
-          <ul className="flex-1 overflow-y-auto pr-1 flex flex-col gap-3">
-            {logs.length === 0 ? (
-              <li style={{ fontSize: '0.875rem', color: '#6F6F6F', fontStyle: 'italic' }}>Monitoring silent frequencies...</li>
-            ) : (
-              logs.map((log, i) => (
-                <li
-                  key={i}
-                  className="p-4 rounded-2xl"
-                  style={{ background: '#f5f5f5', border: '1px solid #e5e5e5' }}
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <span style={{ fontSize: '0.7rem', fontFamily: 'monospace', color: '#000', fontWeight: 600 }}>Node {log.nodeId}</span>
-                    <span style={{ fontSize: '0.6rem', color: '#6F6F6F', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.8rem', color: '#3F3F3F', lineHeight: 1.5 }}>{log.logic}</p>
-                </li>
-              ))
-            )}
-          </ul>
-        </div>
       </div>
 
       {/* ── RIGHT MAP ── */}

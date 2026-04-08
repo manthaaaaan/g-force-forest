@@ -1,6 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-const LiveEdgeNode: React.FC = () => {
+interface LiveEdgeNodeProps {
+  onTrigger?: (soundType: string) => void;
+}
+
+const LiveEdgeNode: React.FC<LiveEdgeNodeProps> = ({ onTrigger }) => {
   const [isActive, setIsActive] = useState(false);
   const [lastDetected, setLastDetected] = useState<string | null>(null);
   const [avgLevel, setAvgLevel] = useState(0);
@@ -83,7 +87,7 @@ const LiveEdgeNode: React.FC = () => {
 
       for (let i = 0; i < bufferLength; i++) {
         const barHeight = dataArray[i];
-        
+
         if (i < 15) lowSum += barHeight;
         else if (i < 60) midSum += barHeight;
         else highSum += barHeight;
@@ -157,10 +161,10 @@ const LiveEdgeNode: React.FC = () => {
         console.log(`sending to Gemini... (${audioBlob.size} bytes)`);
 
         const getBase64 = (blob: Blob) => new Promise<string>((resolve, reject) => {
-           const reader = new FileReader();
-           reader.onloadend = () => resolve(reader.result?.toString().split(',')[1] || "");
-           reader.onerror = reject;
-           reader.readAsDataURL(blob);
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result?.toString().split(',')[1] || "");
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
         });
 
         const base64data = await getBase64(audioBlob);
@@ -192,9 +196,9 @@ const LiveEdgeNode: React.FC = () => {
         });
 
         if (!res.ok) {
-           const errorJson = await res.json().catch(() => ({}));
-           console.error("Full Gemini Error JSON:", errorJson);
-           throw new Error(`Gemini API Error: ${res.status}`);
+          const errorJson = await res.json().catch(() => ({}));
+          console.error("Full Gemini Error JSON:", errorJson);
+          throw new Error(`Gemini API Error: ${res.status}`);
         }
 
         const data = await res.json();
@@ -205,19 +209,20 @@ const LiveEdgeNode: React.FC = () => {
 
         const lower = answer.toLowerCase();
         let detectedType = 'Loud Anomaly';
-        
+
         if (lower.includes('chainsaw')) {
-           detectedType = 'chainsaw';
+          detectedType = 'chainsaw';
         } else if (lower.includes('gun') || lower.includes('shot')) {
-           detectedType = 'gunshot';
+          detectedType = 'gunshot';
         } else if (lower.includes('human') || lower.includes('speech') || lower.includes('voice')) {
-           detectedType = 'human';
+          detectedType = 'human';
         } else if (lower.includes('vehicle') || lower.includes('engine')) {
-           detectedType = 'vehicle';
+          detectedType = 'vehicle';
         }
-        
+
         setLastDetected(detectedType);
         setStatus('detected');
+        if (onTrigger) onTrigger(detectedType);
 
         // Anti-spam cooldown protection
         setTimeout(() => {
@@ -259,10 +264,10 @@ const LiveEdgeNode: React.FC = () => {
   }, []);
 
   const statusLabel: Record<string, { text: string; color: string }> = {
-    idle:     { text: 'Listening...', color: '#6F6F6F' },
-    quiet:    { text: 'Too quiet', color: '#6F6F6F' },
-    sending:  { text: 'Analyzing...', color: '#f59e0b' },
-    loading:  { text: 'Model warming up...', color: '#f59e0b' },
+    idle: { text: 'Listening...', color: '#6F6F6F' },
+    quiet: { text: 'Too quiet', color: '#6F6F6F' },
+    sending: { text: 'Analyzing...', color: '#f59e0b' },
+    loading: { text: 'Model warming up...', color: '#f59e0b' },
     detected: { text: 'Threat classified!', color: '#ef4444' },
   };
 
@@ -271,14 +276,13 @@ const LiveEdgeNode: React.FC = () => {
       <div className="flex justify-between items-start mb-6">
         <div>
           <h2 className="text-3xl font-instrument text-zinc-100 mb-1">Live Edge Node</h2>
-          <p className="text-sm text-zinc-500 tracking-wide font-mono uppercase">Acoustic Sensor ID: 001</p>
+          <p className="text-sm text-zinc-500 tracking-wide font-mono uppercase">Connected with Base Office ,Sensor ID: 001</p>
         </div>
         {isActive && (
           <div className="text-right">
             <p className="text-[10px] text-zinc-600 font-mono uppercase tracking-wider mb-1">Level</p>
-            <p className={`text-sm font-mono font-bold ${
-              avgLevel > 60 ? 'text-red-400' : avgLevel > 30 ? 'text-yellow-400' : 'text-emerald-400'
-            }`}>
+            <p className={`text-sm font-mono font-bold ${avgLevel > 60 ? 'text-red-400' : avgLevel > 30 ? 'text-yellow-400' : 'text-emerald-400'
+              }`}>
               {avgLevel}
             </p>
           </div>
@@ -312,11 +316,10 @@ const LiveEdgeNode: React.FC = () => {
       {lastDetected && isActive && (
         <div className="mb-4 flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-2">
           <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-wider">Last classified:</span>
-          <span className={`text-xs font-mono font-bold uppercase tracking-wider ${
-            lastDetected === 'gunshot'  ? 'text-red-400' :
+          <span className={`text-xs font-mono font-bold uppercase tracking-wider ${lastDetected === 'gunshot' ? 'text-red-400' :
             lastDetected === 'chainsaw' ? 'text-yellow-400' :
-            'text-blue-400'
-          }`}>
+              'text-blue-400'
+            }`}>
             {lastDetected === 'gunshot' ? '🔴' : lastDetected === 'chainsaw' ? '🟡' : '🔵'} {lastDetected}
           </span>
         </div>

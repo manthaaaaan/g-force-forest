@@ -167,6 +167,8 @@ function App() {
         <p className="text-base sm:text-lg max-w-2xl mt-8 leading-relaxed text-[#6F6F6F] animate-fade-rise-delay opacity-0">
           Building acoustic intelligence for rangers, conservationists, and vulnerable ecosystems.
           Through the ambient noise, we deploy edge AI to detect, pinpoint, and neutralize threats in real-time.
+
+          Built by Team G-Force
         </p>
         {/* Features Intro */}
         <div className="mt-16 w-full max-w-7xl z-20 animate-fade-rise-delay-2 opacity-0 px-4">
