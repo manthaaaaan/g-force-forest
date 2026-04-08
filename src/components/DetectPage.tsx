@@ -20,17 +20,18 @@ interface SubbedFrame {
 }
 
 const WILDLIFE_LABELS = new Set(['bird', 'cat', 'dog', 'horse', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
+const HF_BACKEND = 'https://manthaaaaan-wildlife-detection.hf.space';
 
 const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isWakingUp, setIsWakingUp] = useState(false);
   const [progress, setProgress] = useState(0);
   const [intervalSec, setIntervalSec] = useState<number>(1);
   const [frames, setFrames] = useState<SubbedFrame[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Hidden extraction refs
   const hiddenVideoRef = useRef<HTMLVideoElement>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -39,9 +40,26 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     if (file) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
-      setFrames([]); // reset
+      setFrames([]);
       setErrorMsg('');
       setProgress(0);
+    }
+  };
+
+  // Wake up HF Space before starting detection
+  const wakeUpBackend = async (): Promise<boolean> => {
+    setIsWakingUp(true);
+    try {
+      // Ping the docs endpoint to wake it up
+      const res = await fetch(`${HF_BACKEND}/docs`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(60000) // 60s timeout for cold start
+      });
+      setIsWakingUp(false);
+      return res.ok;
+    } catch (err) {
+      setIsWakingUp(false);
+      return false;
     }
   };
 
@@ -51,7 +69,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) return reject('No context');
-
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       canvas.toBlob(blob => {
         if (blob) resolve(blob);
@@ -64,9 +81,10 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     const formData = new FormData();
     formData.append('file', blob, 'frame.jpg');
 
-    const res = await fetch('https://manthaaaaan-wildlife-detection.hf.space/detect', {
+    const res = await fetch(`${HF_BACKEND}/detect`, {
       method: 'POST',
-      body: formData
+      body: formData,
+      signal: AbortSignal.timeout(30000) // 30s per frame
     });
 
     if (!res.ok) {
@@ -83,9 +101,16 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     setFrames([]);
     setProgress(0);
 
+    // Wake up the backend first
+    const isAlive = await wakeUpBackend();
+    if (!isAlive) {
+      setErrorMsg('Could not reach the detection server. Please try again in a moment.');
+      setIsProcessing(false);
+      return;
+    }
+
     const video = hiddenVideoRef.current;
 
-    // Ensure metadata is loaded
     await new Promise<void>((resolve) => {
       if (video.readyState >= 1) resolve();
       else video.onloadedmetadata = () => resolve();
@@ -108,7 +133,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
       video.currentTime = timeTarget;
 
-      // Wait for video snippet to load
       await new Promise<void>((resolve) => {
         const handleSeeked = () => {
           video.removeEventListener('seeked', handleSeeked);
@@ -131,7 +155,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
           originalHeight: image_size[1]
         });
 
-        // Update state aggressively for visual feedback
         setFrames([...processedFrames]);
         setProgress(Math.round(((i + 1) / totalSteps) * 100));
 
@@ -145,6 +168,12 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     setProgress(100);
   };
 
+  const getButtonLabel = () => {
+    if (isWakingUp) return 'Waking up server...';
+    if (isProcessing) return 'Processing...';
+    return 'Run Detection';
+  };
+
   return (
     <div className="min-h-screen bg-[#020202] text-white font-inter flex flex-col overflow-y-auto relative">
       {/* Live Gradient Background */}
@@ -152,6 +181,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
         <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] bg-emerald-900/20 blur-[120px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '6s' }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] bg-teal-900/10 blur-[130px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '8s', animationDelay: '1s' }}></div>
       </div>
+
       <nav className="relative z-10 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto w-full flex-shrink-0 border-b border-white/5 bg-black/50 backdrop-blur-md">
         <div className="flex items-center gap-4">
           <button
@@ -169,7 +199,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 flex flex-col gap-8">
 
-        {/* Upload Zone & Setup */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-start">
           <div className="flex flex-col gap-4">
             <h2 className="text-2xl font-instrument">1. Upload Footage</h2>
@@ -204,22 +233,34 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
                     type="range" min="0.5" max="5" step="0.5"
                     value={intervalSec} onChange={e => setIntervalSec(parseFloat(e.target.value))}
                     className="w-full accent-emerald-500"
-                    disabled={isProcessing}
+                    disabled={isProcessing || isWakingUp}
                   />
                 </div>
+
                 <button
                   onClick={startDetection}
-                  disabled={isProcessing || !videoFile}
-                  className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-all shadow-xl ${isProcessing ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-500'}`}
+                  disabled={isProcessing || isWakingUp || !videoFile}
+                  className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-all shadow-xl ${
+                    isProcessing || isWakingUp
+                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                  }`}
                 >
-                  {isProcessing ? 'Processing Framework...' : 'Run Detection'}
+                  {getButtonLabel()}
                 </button>
 
-                {isProcessing && (
+                {isWakingUp && (
+                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">
+                    ⏳ Waking up detection server — this takes ~30s on first use...
+                  </p>
+                )}
+
+                {(isProcessing && !isWakingUp) && (
                   <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mt-2">
                     <div className="h-full bg-emerald-500 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
                   </div>
                 )}
+
                 {errorMsg && <p className="text-red-500 text-sm mt-2 font-mono">{errorMsg}</p>}
               </div>
             )}
@@ -245,7 +286,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
             <div className="flex justify-between items-center bg-black/80 sticky top-0 py-4 z-20 backdrop-blur-md border-b border-white/5">
               <h2 className="text-3xl font-instrument">Analysis Results <span className="text-emerald-500 text-xl">({frames.length} frames)</span></h2>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {frames.map(f => (
                 <FrameResult key={f.id} frame={f} />
@@ -256,7 +296,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
       </main>
 
-      {/* Hidden processing elements */}
       {videoUrl && (
         <video
           ref={hiddenVideoRef}
@@ -275,8 +314,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
 const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Sort detections by descending confidence
   const sortedDetections = [...frame.detections].sort((a, b) => b.score - a.score);
 
   useEffect(() => {
@@ -285,29 +322,22 @@ const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Draw background image
     const img = new Image();
     img.src = frame.imageBlobUrl;
     img.onload = () => {
-      // Set display dims maintaining aspect ratio relative to a standard container
-      // Since it's CSS width="100%", canvas actual w/h dictate internal drawing resolution
       canvas.width = img.width;
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      // Draw bindings
       frame.detections.forEach(d => {
-        // Data comes as [x1, y1, x2, y2] relative to originalImage size (from backend)
-        // Our canvas.width is precisely the originalImage size since we loaded the extracted blob directly.
         const [x1, y1, x2, y2] = d.box;
         const isWildlife = WILDLIFE_LABELS.has(d.label.toLowerCase());
-        const rawColor = isWildlife ? '#22c55e' : '#e0e0e0ff'; // Emerald 500 : Gray 500
+        const rawColor = isWildlife ? '#22c55e' : '#e0e0e0ff';
 
         ctx.strokeStyle = rawColor;
-        ctx.lineWidth = Math.max(3, canvas.width / 200); // Scale line width reasonably
+        ctx.lineWidth = Math.max(3, canvas.width / 200);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-        // Label Background
         const text = `${d.label.toUpperCase()} (${(d.score * 100).toFixed(0)}%)`;
         ctx.font = `${Math.max(14, canvas.width / 50)}px monospace`;
         const textWidth = ctx.measureText(text).width;
@@ -315,7 +345,6 @@ const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
         ctx.fillStyle = rawColor;
         ctx.fillRect(x1, y1 - Math.max(20, canvas.width / 35), textWidth + 10, Math.max(20, canvas.width / 35));
 
-        // Label Text
         ctx.fillStyle = isWildlife ? '#000000' : '#ffffff';
         ctx.fillText(text, x1 + 5, y1 - 5);
       });
