@@ -64,7 +64,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     const formData = new FormData();
     formData.append('file', blob, 'frame.jpg');
 
-    const res = await fetch('http://https://manthaaaaan-wildlife-detection.hf.space/detect', {
+    const res = await fetch('https://manthaaaaan-wildlife-detection.hf.space/detect', {
       method: 'POST',
       body: formData
     });
