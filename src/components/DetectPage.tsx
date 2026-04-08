@@ -7,7 +7,7 @@ interface DetectPageProps {
 interface DetectionBox {
   label: string;
   score: number;
-  box: [number, number, number, number]; // [x1, y1, x2, y2]
+  box: [number, number, number, number];
 }
 
 interface SubbedFrame {
@@ -22,13 +22,18 @@ interface SubbedFrame {
 const WILDLIFE_LABELS = new Set(['bird', 'cat', 'dog', 'horse', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
 const HF_BACKEND = 'https://manthaaaaan-wildlife-detection.hf.space';
 
+type InputMode = 'file' | 'youtube';
+
 const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
+  const [inputMode, setInputMode] = useState<InputMode>('file');
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [isDownloading, setIsDownloading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isWakingUp, setIsWakingUp] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [intervalSec, setIntervalSec] = useState<number>(1);
+  const [intervalSec, setIntervalSec] = useState<number>(2);
   const [frames, setFrames] = useState<SubbedFrame[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -46,18 +51,53 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     }
   };
 
-  // Wake up HF Space before starting detection
+  const handleYoutubeDownload = async () => {
+    if (!youtubeUrl.trim()) return;
+    setIsDownloading(true);
+    setErrorMsg('');
+    setFrames([]);
+    setProgress(0);
+
+    try {
+      const res = await fetch(`${HF_BACKEND}/download`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: youtubeUrl.trim() }),
+        signal: AbortSignal.timeout(180000)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || `Download failed: ${res.status}`);
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const err = await res.json();
+        throw new Error(err.error || 'Download failed');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setVideoUrl(url);
+      setVideoFile(null);
+    } catch (err: any) {
+      setErrorMsg(`YouTube download failed: ${err.message}`);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const wakeUpBackend = async (): Promise<boolean> => {
     setIsWakingUp(true);
     try {
-      // Ping the docs endpoint to wake it up
       const res = await fetch(`${HF_BACKEND}/docs`, {
         method: 'GET',
-        signal: AbortSignal.timeout(60000) // 60s timeout for cold start
+        signal: AbortSignal.timeout(60000)
       });
       setIsWakingUp(false);
       return res.ok;
-    } catch (err) {
+    } catch {
       setIsWakingUp(false);
       return false;
     }
@@ -80,37 +120,30 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
   const uploadFrame = async (blob: Blob): Promise<{ detections: DetectionBox[], image_size: [number, number] }> => {
     const formData = new FormData();
     formData.append('file', blob, 'frame.jpg');
-
     const res = await fetch(`${HF_BACKEND}/detect`, {
       method: 'POST',
       body: formData,
-      signal: AbortSignal.timeout(30000) // 30s per frame
+      signal: AbortSignal.timeout(30000)
     });
-
-    if (!res.ok) {
-      throw new Error(`Detection failed with status: ${res.status}`);
-    }
-
+    if (!res.ok) throw new Error(`Detection failed with status: ${res.status}`);
     return await res.json();
   };
 
   const startDetection = async () => {
-    if (!videoFile || !videoUrl || !hiddenVideoRef.current || !hiddenCanvasRef.current) return;
+    if (!videoUrl || !hiddenVideoRef.current || !hiddenCanvasRef.current) return;
     setIsProcessing(true);
     setErrorMsg('');
     setFrames([]);
     setProgress(0);
 
-    // Wake up the backend first
     const isAlive = await wakeUpBackend();
     if (!isAlive) {
-      setErrorMsg('Could not reach the detection server. Please try again in a moment.');
+      setErrorMsg('Could not reach the detection server. Please try again.');
       setIsProcessing(false);
       return;
     }
 
     const video = hiddenVideoRef.current;
-
     await new Promise<void>((resolve) => {
       if (video.readyState >= 1) resolve();
       else video.onloadedmetadata = () => resolve();
@@ -132,7 +165,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
       if (timeTarget > duration) break;
 
       video.currentTime = timeTarget;
-
       await new Promise<void>((resolve) => {
         const handleSeeked = () => {
           video.removeEventListener('seeked', handleSeeked);
@@ -157,7 +189,6 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
         setFrames([...processedFrames]);
         setProgress(Math.round(((i + 1) / totalSteps) * 100));
-
       } catch (err: any) {
         console.error('Extraction failed:', err);
         setErrorMsg(`Failed at ${timeTarget.toFixed(1)}s: ${err.message}`);
@@ -174,23 +205,19 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     return 'Run Detection';
   };
 
+  const isBusy = isProcessing || isWakingUp || isDownloading;
+
   return (
     <div className="min-h-screen bg-[#020202] text-white font-inter flex flex-col overflow-y-auto relative">
-      {/* Live Gradient Background */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] bg-emerald-900/20 blur-[120px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '6s' }}></div>
         <div className="absolute bottom-[-20%] right-[-10%] w-[60vw] h-[60vw] bg-teal-900/10 blur-[130px] rounded-full mix-blend-screen animate-pulse" style={{ animationDuration: '8s', animationDelay: '1s' }}></div>
       </div>
 
       <nav className="relative z-10 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto w-full flex-shrink-0 border-b border-white/5 bg-black/50 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="text-sm cursor-pointer text-zinc-400 hover:text-white transition-colors flex items-center gap-2"
-          >
-            ← Back
-          </button>
-        </div>
+        <button onClick={onBack} className="text-sm cursor-pointer text-zinc-400 hover:text-white transition-colors flex items-center gap-2">
+          ← Back
+        </button>
         <h1 className="text-xl tracking-tight font-instrument flex items-center gap-3">
           <span className="text-emerald-500">EchoGrid</span> Wildlife Detection
         </h1>
@@ -198,30 +225,84 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
       </nav>
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 flex flex-col gap-8">
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full items-start">
           <div className="flex flex-col gap-4">
-            <h2 className="text-2xl font-instrument">1. Upload Footage</h2>
-            <label className="border-2 border-dashed border-zinc-800 hover:border-emerald-500 hover:bg-emerald-950/20 transition-all rounded-3xl p-12 flex flex-col items-center justify-center cursor-pointer min-h-[300px]">
-              <input type="file" className="hidden" accept="video/mp4,video/webm" onChange={handleFileChange} />
-              {videoFile ? (
-                <div className="text-center">
-                  <span className="text-emerald-400 text-4xl mb-3 block">✓</span>
-                  <span className="text-zinc-200 font-medium">{videoFile.name}</span>
-                  <span className="text-zinc-500 text-sm block mt-1">{(videoFile.size / 1024 / 1024).toFixed(1)} MB</span>
-                  <span className="text-emerald-500 text-xs tracking-widest mt-4 uppercase block underline outline-white decoration-emerald-800">Change File</span>
-                </div>
-              ) : (
-                <div className="text-center opacity-70 flex flex-col items-center gap-2">
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-400 mb-2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4" />
-                    <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
-                  </svg>
-                  <span className="text-zinc-400">Click or drag MP4/WebM video here</span>
-                </div>
-              )}
-            </label>
+            <h2 className="text-2xl font-instrument">1. Input Footage</h2>
 
+            {/* Tab Switcher */}
+            <div className="flex rounded-xl overflow-hidden border border-zinc-800 w-full">
+              <button
+                onClick={() => { setInputMode('file'); setVideoUrl(null); setFrames([]); setErrorMsg(''); }}
+                className={`flex-1 py-2.5 text-sm font-bold uppercase tracking-widest transition-all ${inputMode === 'file' ? 'bg-emerald-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}
+                disabled={isBusy}
+              >
+                📁 Upload File
+              </button>
+              <button
+                onClick={() => { setInputMode('youtube'); setVideoUrl(null); setFrames([]); setErrorMsg(''); }}
+                className={`flex-1 py-2.5 text-sm font-bold uppercase tracking-widest transition-all ${inputMode === 'youtube' ? 'bg-emerald-600 text-white' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}
+                disabled={isBusy}
+              >
+                ▶ YouTube Link
+              </button>
+            </div>
+
+            {/* File Upload */}
+            {inputMode === 'file' && (
+              <label className="border-2 border-dashed border-zinc-800 hover:border-emerald-500 hover:bg-emerald-950/20 transition-all rounded-3xl p-12 flex flex-col items-center justify-center cursor-pointer min-h-[220px]">
+                <input type="file" className="hidden" accept="video/mp4,video/webm" onChange={handleFileChange} />
+                {videoFile ? (
+                  <div className="text-center">
+                    <span className="text-emerald-400 text-4xl mb-3 block">✓</span>
+                    <span className="text-zinc-200 font-medium">{videoFile.name}</span>
+                    <span className="text-zinc-500 text-sm block mt-1">{(videoFile.size / 1024 / 1024).toFixed(1)} MB</span>
+                    <span className="text-emerald-500 text-xs tracking-widest mt-4 uppercase block underline decoration-emerald-800">Change File</span>
+                  </div>
+                ) : (
+                  <div className="text-center opacity-70 flex flex-col items-center gap-2">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-zinc-400 mb-2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0-12l-4 4m4-4l4 4" />
+                      <path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" strokeLinecap="round" />
+                    </svg>
+                    <span className="text-zinc-400">Click or drag MP4/WebM video here</span>
+                  </div>
+                )}
+              </label>
+            )}
+
+            {/* YouTube Input */}
+            {inputMode === 'youtube' && (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="text"
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    value={youtubeUrl}
+                    onChange={e => setYoutubeUrl(e.target.value)}
+                    disabled={isDownloading}
+                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <p className="text-zinc-500 text-xs px-1">Paste any YouTube video URL. Short clips work best (under 2 mins).</p>
+                </div>
+                <button
+                  onClick={handleYoutubeDownload}
+                  disabled={isDownloading || !youtubeUrl.trim()}
+                  className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-all ${isDownloading || !youtubeUrl.trim() ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-500'}`}
+                >
+                  {isDownloading ? '⏳ Downloading...' : '⬇ Load Video'}
+                </button>
+                {isDownloading && (
+                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">
+                    Downloading from YouTube — this may take 30-60s...
+                  </p>
+                )}
+                {videoUrl && inputMode === 'youtube' && !isDownloading && (
+                  <p className="text-emerald-400 text-xs font-mono text-center">✓ Video loaded — ready to detect!</p>
+                )}
+              </div>
+            )}
+
+            {/* Detection Controls */}
             {videoUrl && (
               <div className="bg-zinc-900/50 p-6 rounded-2xl border border-white/5 space-y-6">
                 <div>
@@ -233,29 +314,25 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
                     type="range" min="0.5" max="5" step="0.5"
                     value={intervalSec} onChange={e => setIntervalSec(parseFloat(e.target.value))}
                     className="w-full accent-emerald-500"
-                    disabled={isProcessing || isWakingUp}
+                    disabled={isBusy}
                   />
                 </div>
 
                 <button
                   onClick={startDetection}
-                  disabled={isProcessing || isWakingUp || !videoFile}
-                  className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-all shadow-xl ${
-                    isProcessing || isWakingUp
-                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                  }`}
+                  disabled={isBusy}
+                  className={`w-full py-3 rounded-xl font-bold uppercase tracking-widest text-sm transition-all shadow-xl ${isBusy ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-emerald-600 text-white hover:bg-emerald-500'}`}
                 >
                   {getButtonLabel()}
                 </button>
 
                 {isWakingUp && (
                   <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">
-                    ⏳ Waking up detection server — this takes ~30s on first use...
+                    ⏳ Waking up detection server — ~30s on first use...
                   </p>
                 )}
 
-                {(isProcessing && !isWakingUp) && (
+                {isProcessing && !isWakingUp && (
                   <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mt-2">
                     <div className="h-full bg-emerald-500 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
                   </div>
@@ -266,6 +343,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
             )}
           </div>
 
+          {/* Video Preview */}
           <div className="flex flex-col gap-4">
             <h2 className="text-2xl font-instrument">2. Video Preview</h2>
             {videoUrl ? (
@@ -280,20 +358,17 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
           </div>
         </div>
 
-        {/* Results Viewer */}
+        {/* Results */}
         {frames.length > 0 && (
           <div className="border-t border-white/10 pt-10 mt-6 flex flex-col gap-6">
             <div className="flex justify-between items-center bg-black/80 sticky top-0 py-4 z-20 backdrop-blur-md border-b border-white/5">
               <h2 className="text-3xl font-instrument">Analysis Results <span className="text-emerald-500 text-xl">({frames.length} frames)</span></h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {frames.map(f => (
-                <FrameResult key={f.id} frame={f} />
-              ))}
+              {frames.map(f => <FrameResult key={f.id} frame={f} />)}
             </div>
           </div>
         )}
-
       </main>
 
       {videoUrl && (
@@ -357,11 +432,9 @@ const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
         <span className="font-mono text-emerald-500 font-bold tracking-widest text-sm">T+{frame.timestamp.toFixed(1)}s</span>
         <span className="text-xs text-zinc-500">{sortedDetections.length} detections</span>
       </div>
-
       <div className="w-full relative aspect-video bg-black rounded-xl overflow-hidden border border-black/50">
         <canvas ref={canvasRef} className="w-full h-full object-contain" />
       </div>
-
       <div className="flex flex-wrap gap-2 min-h-[32px]">
         {sortedDetections.map((d, idx) => {
           const isWildlife = WILDLIFE_LABELS.has(d.label.toLowerCase());
