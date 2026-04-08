@@ -228,7 +228,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
 
   const handleManualSimulate = (soundType: string) => {
     if (soundType === 'chainsaw' || soundType === 'gunshot') {
-      // 1. Play synthetic electronic siren
       try {
         const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const osc = audioCtx.createOscillator();
@@ -239,7 +238,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
         gainNode.connect(audioCtx.destination);
 
         const nowTime = audioCtx.currentTime;
-        // Wailing siren effect
         osc.frequency.setValueAtTime(600, nowTime);
         for(let i=0; i<3; i++){
             osc.frequency.linearRampToValueAtTime(1000, nowTime + i + 0.5);
@@ -255,12 +253,11 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
         console.warn("Web Audio API not supported", e);
       }
 
-      // 2. Play voice 3 times continuously
       if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel(); // Stop any currently playing audio
+        window.speechSynthesis.cancel();
         for (let i = 0; i < 3; i++) {
           const msg = new SpeechSynthesisUtterance(`Potential ${soundType}`);
-          msg.rate = 1.1; // slightly urgent speed
+          msg.rate = 1.1;
           window.speechSynthesis.speak(msg);
         }
       }
@@ -313,7 +310,6 @@ const MapDashboard: React.FC<MapDashboardProps> = ({ goHome, role, username, onL
       );
     });
 
-    // Fetch initial global alert state if we missed the socket broadcast
     fetch('http://localhost:3001/api/guard-alert')
       .then(res => res.json())
       .then(data => {
