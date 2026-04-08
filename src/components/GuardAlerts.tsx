@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css';
 import LiveBackground from './LiveBackground';
 import AIPredictor from './AIPredictor';
 
+const API_BASE = 'https://manthaaaaan-wildlife-detection.hf.space';
+
 type Role = 'ranger' | 'civilian' | null;
 
 interface GuardAlertsProps {
@@ -90,12 +92,11 @@ const GuardAlerts: React.FC<GuardAlertsProps> = ({ onBack, role }) => {
         navigator.geolocation.getCurrentPosition((pos) => {
           const coords: [number, number] = [pos.coords.latitude, pos.coords.longitude];
           setCenter(coords);
-          setSelectedPos(coords); // Automatically lock to live location first
+          setSelectedPos(coords);
         });
       }
 
-      // Fetch currently active alert to show on the mini-map
-      fetch('http://localhost:3001/api/guard-alert')
+      fetch(`${API_BASE}/api/guard-alert`)
         .then(res => res.json())
         .then(data => {
           if (data.alert && data.alert.lat !== undefined && data.alert.lng !== undefined) {
@@ -110,13 +111,12 @@ const GuardAlerts: React.FC<GuardAlertsProps> = ({ onBack, role }) => {
     if (!isRanger || !selectedPos) return;
     setIssuing(typeId);
     try {
-      await fetch('http://localhost:3001/api/guard-alert', {
+      await fetch(`${API_BASE}/api/guard-alert`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: title, issuer: 'Ranger Command', lat: selectedPos[0], lng: selectedPos[1] })
       });
 
-      // Instantly update active map view
       setActiveAlert({ type: title, lat: selectedPos[0], lng: selectedPos[1] });
 
       setTimeout(() => {
@@ -131,7 +131,7 @@ const GuardAlerts: React.FC<GuardAlertsProps> = ({ onBack, role }) => {
   const handleClearAlerts = async () => {
     if (!isRanger) return;
     try {
-      await fetch('http://localhost:3001/api/clear-guard-alert', { method: 'POST' });
+      await fetch(`${API_BASE}/api/clear-guard-alert`, { method: 'POST' });
       setActiveAlert(null);
     } catch (err) {
       console.error('Failed to clear alerts', err);
