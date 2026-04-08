@@ -19,9 +19,7 @@ interface SubbedFrame {
   originalHeight: number;
 }
 
-const WILDLIFE_LABELS = new Set(['bird', 'cat', 'dog', 'horse', 'cow', 'elephant', 'bear', 'zebra', 'giraffe']);
 const HF_BACKEND = 'https://manthaaaaan-wildlife-detection.hf.space';
-
 type InputMode = 'file' | 'youtube';
 
 const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
@@ -66,20 +64,16 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
         signal: AbortSignal.timeout(180000)
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Download failed: ${res.status}`);
-      }
-
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const err = await res.json();
         throw new Error(err.error || 'Download failed');
       }
 
+      if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      setVideoUrl(url);
+      setVideoUrl(URL.createObjectURL(blob));
       setVideoFile(null);
     } catch (err: any) {
       setErrorMsg(`YouTube download failed: ${err.message}`);
@@ -123,9 +117,9 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
     const res = await fetch(`${HF_BACKEND}/detect`, {
       method: 'POST',
       body: formData,
-      signal: AbortSignal.timeout(30000)
+      signal: AbortSignal.timeout(60000) // OWL-ViT needs more time per frame
     });
-    if (!res.ok) throw new Error(`Detection failed with status: ${res.status}`);
+    if (!res.ok) throw new Error(`Detection failed: ${res.status}`);
     return await res.json();
   };
 
@@ -138,7 +132,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
 
     const isAlive = await wakeUpBackend();
     if (!isAlive) {
-      setErrorMsg('Could not reach the detection server. Please try again.');
+      setErrorMsg('Could not reach detection server. Please try again.');
       setIsProcessing(false);
       return;
     }
@@ -190,7 +184,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
         setFrames([...processedFrames]);
         setProgress(Math.round(((i + 1) / totalSteps) * 100));
       } catch (err: any) {
-        console.error('Extraction failed:', err);
+        console.error('Frame failed:', err);
         setErrorMsg(`Failed at ${timeTarget.toFixed(1)}s: ${err.message}`);
       }
     }
@@ -273,17 +267,15 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
             {/* YouTube Input */}
             {inputMode === 'youtube' && (
               <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-2">
-                  <input
-                    type="text"
-                    placeholder="https://www.youtube.com/watch?v=..."
-                    value={youtubeUrl}
-                    onChange={e => setYoutubeUrl(e.target.value)}
-                    disabled={isDownloading}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors"
-                  />
-                  <p className="text-zinc-500 text-xs px-1">Paste any YouTube video URL. Short clips work best (under 2 mins).</p>
-                </div>
+                <input
+                  type="text"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={youtubeUrl}
+                  onChange={e => setYoutubeUrl(e.target.value)}
+                  disabled={isDownloading}
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                />
+                <p className="text-zinc-500 text-xs px-1">Short clips work best — under 2 minutes recommended.</p>
                 <button
                   onClick={handleYoutubeDownload}
                   disabled={isDownloading || !youtubeUrl.trim()}
@@ -292,17 +284,15 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
                   {isDownloading ? '⏳ Downloading...' : '⬇ Load Video'}
                 </button>
                 {isDownloading && (
-                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">
-                    Downloading from YouTube — this may take 30-60s...
-                  </p>
+                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">Downloading from YouTube — 30-60s...</p>
                 )}
-                {videoUrl && inputMode === 'youtube' && !isDownloading && (
+                {videoUrl && !isDownloading && (
                   <p className="text-emerald-400 text-xs font-mono text-center">✓ Video loaded — ready to detect!</p>
                 )}
               </div>
             )}
 
-            {/* Detection Controls */}
+            {/* Controls */}
             {videoUrl && (
               <div className="bg-zinc-900/50 p-6 rounded-2xl border border-white/5 space-y-6">
                 <div>
@@ -311,11 +301,12 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
                     <span className="text-emerald-400 font-mono bg-emerald-950 px-2 py-1 rounded text-xs">{intervalSec}s</span>
                   </div>
                   <input
-                    type="range" min="0.5" max="5" step="0.5"
+                    type="range" min="1" max="5" step="0.5"
                     value={intervalSec} onChange={e => setIntervalSec(parseFloat(e.target.value))}
                     className="w-full accent-emerald-500"
                     disabled={isBusy}
                   />
+                  <p className="text-zinc-600 text-xs mt-1">OWL-ViT scans 100+ species — each frame takes ~5s on free hardware</p>
                 </div>
 
                 <button
@@ -327,18 +318,14 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
                 </button>
 
                 {isWakingUp && (
-                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">
-                    ⏳ Waking up detection server — ~30s on first use...
-                  </p>
+                  <p className="text-yellow-400 text-xs font-mono text-center animate-pulse">⏳ Waking up server — ~30s on first use...</p>
                 )}
-
                 {isProcessing && !isWakingUp && (
-                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden mt-2">
+                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-500 transition-all duration-300 ease-out" style={{ width: `${progress}%` }}></div>
                   </div>
                 )}
-
-                {errorMsg && <p className="text-red-500 text-sm mt-2 font-mono">{errorMsg}</p>}
+                {errorMsg && <p className="text-red-500 text-sm font-mono">{errorMsg}</p>}
               </div>
             )}
           </div>
@@ -362,7 +349,9 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
         {frames.length > 0 && (
           <div className="border-t border-white/10 pt-10 mt-6 flex flex-col gap-6">
             <div className="flex justify-between items-center bg-black/80 sticky top-0 py-4 z-20 backdrop-blur-md border-b border-white/5">
-              <h2 className="text-3xl font-instrument">Analysis Results <span className="text-emerald-500 text-xl">({frames.length} frames)</span></h2>
+              <h2 className="text-3xl font-instrument">
+                Analysis Results <span className="text-emerald-500 text-xl">({frames.length} frames)</span>
+              </h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {frames.map(f => <FrameResult key={f.id} frame={f} />)}
@@ -372,15 +361,7 @@ const DetectPage: React.FC<DetectPageProps> = ({ onBack }) => {
       </main>
 
       {videoUrl && (
-        <video
-          ref={hiddenVideoRef}
-          src={videoUrl}
-          className="hidden"
-          crossOrigin="anonymous"
-          preload="auto"
-          muted
-          playsInline
-        />
+        <video ref={hiddenVideoRef} src={videoUrl} className="hidden" crossOrigin="anonymous" preload="auto" muted playsInline />
       )}
       <canvas ref={hiddenCanvasRef} className="hidden" />
     </div>
@@ -404,30 +385,33 @@ const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
-      frame.detections.forEach(d => {
+      frame.detections.forEach((d, i) => {
         const [x1, y1, x2, y2] = d.box;
-        const isWildlife = WILDLIFE_LABELS.has(d.label.toLowerCase());
-        const rawColor = isWildlife ? '#22c55e' : '#e0e0e0ff';
 
-        ctx.strokeStyle = rawColor;
+        // Color cycle for different animals
+        const colors = ['#22c55e', '#3b82f6', '#f59e0b', '#ec4899', '#a855f7', '#06b6d4'];
+        const color = colors[i % colors.length];
+
+        ctx.strokeStyle = color;
         ctx.lineWidth = Math.max(3, canvas.width / 200);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-        const text = `${d.label.toUpperCase()} (${(d.score * 100).toFixed(0)}%)`;
-        ctx.font = `${Math.max(14, canvas.width / 50)}px monospace`;
+        const text = `${d.label.toUpperCase()} ${(d.score * 100).toFixed(0)}%`;
+        ctx.font = `bold ${Math.max(14, canvas.width / 50)}px monospace`;
         const textWidth = ctx.measureText(text).width;
+        const textHeight = Math.max(20, canvas.width / 35);
 
-        ctx.fillStyle = rawColor;
-        ctx.fillRect(x1, y1 - Math.max(20, canvas.width / 35), textWidth + 10, Math.max(20, canvas.width / 35));
+        ctx.fillStyle = color;
+        ctx.fillRect(x1, y1 - textHeight, textWidth + 10, textHeight);
 
-        ctx.fillStyle = isWildlife ? '#000000' : '#ffffff';
+        ctx.fillStyle = '#000000';
         ctx.fillText(text, x1 + 5, y1 - 5);
       });
     };
   }, [frame]);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg p-4 flex flex-col gap-4 group hover:border-emerald-950 transition-colors">
+    <div className="bg-zinc-900 border border-zinc-800 rounded-3xl overflow-hidden shadow-lg p-4 flex flex-col gap-4 hover:border-emerald-950 transition-colors">
       <div className="flex justify-between items-center px-1">
         <span className="font-mono text-emerald-500 font-bold tracking-widest text-sm">T+{frame.timestamp.toFixed(1)}s</span>
         <span className="text-xs text-zinc-500">{sortedDetections.length} detections</span>
@@ -436,16 +420,13 @@ const FrameResult = ({ frame }: { frame: SubbedFrame }) => {
         <canvas ref={canvasRef} className="w-full h-full object-contain" />
       </div>
       <div className="flex flex-wrap gap-2 min-h-[32px]">
-        {sortedDetections.map((d, idx) => {
-          const isWildlife = WILDLIFE_LABELS.has(d.label.toLowerCase());
-          return (
-            <span key={idx} className={`px-2.5 py-1 rounded-full text-xs font-mono border ${isWildlife ? 'bg-emerald-950 border-emerald-800 text-emerald-400' : 'bg-zinc-800 border-zinc-700 text-zinc-400'}`}>
-              {d.label} {Math.round(d.score * 100)}%
-            </span>
-          );
-        })}
+        {sortedDetections.map((d, idx) => (
+          <span key={idx} className="px-2.5 py-1 rounded-full text-xs font-mono border bg-emerald-950 border-emerald-800 text-emerald-400">
+            {d.label} {Math.round(d.score * 100)}%
+          </span>
+        ))}
         {sortedDetections.length === 0 && (
-          <span className="text-zinc-600 text-xs italic px-1">No targets detected in frame</span>
+          <span className="text-zinc-600 text-xs italic px-1">No animals detected in frame</span>
         )}
       </div>
     </div>
